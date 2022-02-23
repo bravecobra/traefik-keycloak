@@ -1,0 +1,9 @@
+[[tls.certificates]]
+  certFile = "/certs/k8s.local+4.crt"
+  keyFile = "/certs/k8s.local+4.key"
+
+[tls.stores]
+  [tls.stores.default]
+    [tls.stores.default.defaultCertificate]
+      certFile = "/certs/k8s.local+4.crt"
+      keyFile = "/certs/k8s.local+4.key"

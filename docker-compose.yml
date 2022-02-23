@@ -1,0 +1,190 @@
+version: '3.7'
+
+networks:
+  traefik:
+    # external: true
+    name: traefik
+  keycloak:
+    name: keycloak
+
+# volumes:
+#   postgres_data:
+#     driver: local
+
+services:
+
+  ##############################################
+  ##############################################
+  ##
+  ## KEYCLOAK-DB
+  ## PostgreSQL database to persist the IDP data
+  ##
+  ##############################################
+  ##############################################
+  keycloak-db:
+    image: postgres
+    container_name: keycloak-db
+    networks:
+      - keycloak
+    volumes:
+      - ./data/postgres_data:/var/lib/postgresql/data
+      # - /etc/localtime:/etc/localtime:ro
+    ports:
+      - 5432:5432
+    environment:
+      - LOG_MIN_MESSAGES=INFO
+      - DB_VENDOR=postgres
+      - DB_DATABASE=keycloak
+      - DB_ADDR=keycloak-db
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      # This is required to run keycloak behind traefik
+      - PROXY_ADDRESS_FORWARDING=true
+      - KEYCLOAK_HOSTNAME=keycloak.${DOMAINNAME}
+      # Tell Postgress what user/password to create
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    # restart: always
+
+    command: ["postgres", "-c", "log_min_messages=INFO"]
+
+  keycloak-db-backup:
+    image: postgres
+    container_name: keycloak-db-backup
+    networks:
+      - keycloak
+    volumes:
+      - ${KEYCLOAKBACKUP}:/dump
+      # - /etc/localtime:/etc/localtime:ro
+    environment:
+      - PGHOST=keycloak-db
+      - PGUSER=${DB_USER}
+      - PGPASSWORD=${DB_PASSWORD}
+      - BACKUP_NUM_KEEP=7
+      - BACKUP_FREQUENCY=1d
+    entrypoint: |
+      bash -c 'bash -s <<EOF
+      trap "break;exit" SIGHUP SIGINT SIGTERM
+      sleep 2m
+      while /bin/true; do
+        pg_dump -Fc > /dump/dump_\`date +%d-%m-%Y"_"%H_%M_%S\`.psql
+        (ls -t /dump/dump*.psql|head -n $$BACKUP_NUM_KEEP;ls /dump/dump*.psql)|sort|uniq -u|xargs rm -- {}
+        sleep $$BACKUP_FREQUENCY
+      done
+      EOF'
+    # restart: always
+    depends_on:
+      - keycloak-db
+
+  ##############################################
+  ## TRAEFIK
+  ##############################################
+  traefik:
+    image: traefik:latest
+    command:
+      - --entrypoints.web.address=:80
+      - --providers.docker=true
+      - --api.insecure # Don't do that in production
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/config
+      # - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # - --entrypoints.traefik.address=:8080
+      - --log.filePath=/logs/traefik.log
+      - --log.level=debug
+      - --log.format=json
+      - --accesslog=true
+      - --accesslog.filepath=/logs/access.log
+      - --accesslog.format=json
+    networks:
+      - traefik
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - ./config/traefik:/config:ro
+      - ./data/certs/:/certs:ro
+      - ./data/logs:/logs
+    labels:
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.port=443
+      - traefik.http.routers.redirs.rule=hostregexp(`{host:.+}`)
+      - traefik.http.routers.redirs.entrypoints=web
+      - traefik.http.routers.redirs.middlewares=redirect-to-https
+
+  whoami:
+    image: containous/whoami:v1.3.0
+    # command:
+    #   - --port=8082 # Our service listens on 8082
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami-http.entrypoints=web
+      - traefik.http.routers.whoami-http.rule=Host(`whoami1.k8s.local`)
+      # - traefik.http.services.whoami-http.loadbalancer.server.port=8082
+      - traefik.http.routers.whoami-https.entrypoints=websecure
+      - traefik.http.routers.whoami-https.rule=Host(`whoami1.k8s.local`)
+      # - traefik.http.services.whoami-https.loadbalancer.server.port=8082
+      - traefik.http.routers.whoami-https.tls=true
+
+#   traefik:
+#     image: traefik:latest
+#     container_name: traefik
+#     command:
+# #     - "--accesslog=true"
+#       - "--log.level=DEBUG"
+#       - "--api.dashboard=true"
+#       - "--api.insecure=true"
+
+#       # Define the ports Traefik listens on
+#       - "--entrypoints.web.address=:80" #Declares the web entrypoint in Traefik
+#       - "--entrypoints.websecure.address=:443" #Declares the websecure entrypoint in Traefik
+#       - "--providers.docker=true"
+#       - "--providers.docker.exposedbydefault=false"
+#     ports:
+#       - "80:80"       # HTTP Port  - web
+#       - "443:443"     # HTTPS Port - websecure
+#     volumes:
+#       # So that Traefik can listen to the Docker events
+#       - "/var/run/docker.sock:/var/run/docker.sock:ro"
+#     networks:
+#       - traefik
+#     labels:
+#       - "traefik.enable=true"
+#       - "traefik.docker.network=traefik"
+#       - "traefik.http.routers.api.rule`(Host(`traefik.k8s.local`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`)))"
+#       - "traefik.http.routers.api.service=api@internal"
+
+#   whoami1:
+#     # A container that exposes an API to show its IP address
+#     image: containous/whoami
+#     container_name: whoami1
+#     networks:
+#       - traefik
+
+#     labels:
+#       - "traefik.enable=true"
+#       - "traefik.docker.network=traefik"
+#       - "traefik.port=80"
+
+#       # Define the URL to access this app
+#       - "traefik.http.routers.whoami1.rule=Host(`whoami1.k8s.local`)"
+
+#       # Access via HTTPS only
+#       # - "traefik.http.routers.whoami1.entrypoints=websecure"
+
+#       # Forward authentication to keycloak for logon
+#       # - "traefik.http.routers.whoami1.middlewares=myForwardAuth@file"
+
+#       # The application (i.e. this container)
+#       - "traefik.http.routers.whoami1.service=whoami1"
+#       - "traefik.http.services.whoami1.loadbalancer.server.port=80"
+
+#       # TLS is used to protect the domain
+#       # - "traefik.http.routers.whoami1.tls=true"
+#       # - "traefik.http.routers.whoami1.tls.certresolver=leresolver"
+#       # - "traefik.http.routers.whoami1.tls.domains[0].main=${DOMAINNAME}"
+#       # - "traefik.http.routers.whoami1.tls.domains[0].sans=*.${DOMAINNAME}"
