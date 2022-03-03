@@ -145,6 +145,9 @@ services:
       - keycloak-db
 
 
+  ##############################################
+  ## Traefik forward auth
+  ##############################################
   traefik-forward-auth:
     image: thomseddon/traefik-forward-auth:latest
     container_name: traefik-forward-auth
@@ -199,9 +202,6 @@ services:
       # - "traefik.frontend.headers.STSPreload=true"
       # - "traefik.frontend.headers.frameDeny=true"
       - "traefik.backend=traefik-forward-auth"
-      - "traefik.frontend.auth.forward.address=http://traefik-forward-auth:4181"
-      - "traefik.frontend.auth.forward.trustForwardHeader=true"
-      - "traefik.frontend.auth.forward.authResponseHeaders=X-Forwarded-User"
       - "traefik.http.routers.traefik-forward-auth.service=forward-auth-svc"
       - "traefik.http.services.forward-auth-svc.loadbalancer.server.port=4182"
 
@@ -220,7 +220,7 @@ services:
       # - traefik.http.middlewares.secured.chain.middlewares=https-only@docker,keycloakForwardAuth@docker
       # - traefik.http.middlewares.https-only.redirectscheme.scheme=https
       - "traefik.http.middlewares.keycloakForwardAuth.forwardauth.trustForwardHeader=true"
-      - "traefik.http.middlewares.keycloakForwardAuth.forwardauth.authResponseHeaders=X-Auth-User, X-Secret"
+      - "traefik.http.middlewares.keycloakForwardAuth.forwardauth.authResponseHeaders=Authorization, X-Auth-User, X-Secret, X-Forwarded-User, X-WebAuth-User"
       #- "traefik.http.middlewares.keycloakForwardAuth.forwardauth.authResponseHeaders=X-Forwarded-User, X-WebAuth-User"
       - "traefik.http.middlewares.keycloakForwardAuth.forwardauth.tls.insecureSkipVerify=true"
     depends_on:
@@ -270,6 +270,9 @@ services:
       - traefik.http.routers.redirs.entrypoints=web
       - traefik.http.routers.redirs.middlewares=redirect-to-https
 
+  ##############################################
+  ## Sample WhoAmI service
+  ##############################################
   whoami:
     image: containous/whoami:v1.3.0
     command:
@@ -289,5 +292,17 @@ services:
       - traefik.http.routers.whoami-https.service=whoami-https
       - traefik.http.routers.whoami-https.tls=true
       - traefik.http.services.whoami-https.loadbalancer.server.port=8082
-      # Enabling Auth Forward
-      - traefik.http.routers.whoami-https.middlewares=keycloakForwardAuth@docker
+      # Enabling Middlewares: http-redirect, Auth Forward
+      - traefik.http.routers.whoami-https.middlewares=redirect-to-https, keycloakForwardAuth@docker
+
+      # - traefik.frontend.auth.forward.address=http://traefik-forward-auth:4181/auth
+      # - traefik.frontend.auth.forward.trustForwardHeader=true
+      # - traefik.frontend.auth.forward.authResponseHeaders=X-Auth-User, X-Secret, Authorization, X-Forwarded-User, X-WebAuth-User
+      # - traefik.frontend.auth.forward.tls.insecureSkipVerify=true
+
+      ## Forward http to https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.port=443
+      - traefik.http.routers.redirs.rule=hostregexp(`{host:.+}`)
+      - traefik.http.routers.redirs.entrypoints=web
+      - traefik.http.routers.redirs.middlewares=redirect-to-https
