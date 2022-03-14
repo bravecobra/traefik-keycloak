@@ -108,7 +108,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       # This is required to run keycloak behind traefik
       - PROXY_ADDRESS_FORWARDING=true
-      - KEYCLOAK_HOSTNAME=keycloak.k8s.local
+      - KEYCLOAK_HOSTNAME=keycloak.${DOMAINNAME}
       # Tell Postgress what user/password to create
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
@@ -120,7 +120,7 @@ services:
       - "traefik.backend=traefik"
 
       # Define the URL to access this app
-      - "traefik.http.routers.keycloak.rule=Host(`keycloak.k8s.local`)"
+      - "traefik.http.routers.keycloak.rule=Host(`keycloak.${DOMAINNAME}`)"
 
       # Access via HTTPS only
       - "traefik.http.routers.keycloak.entrypoints=websecure"
@@ -137,8 +137,8 @@ services:
       # TLS is used to protect the domain
       - "traefik.http.routers.keycloak.tls=true"
       # - "traefik.http.routers.keycloak.tls.certresolver=leresolver"
-      # - "traefik.http.routers.keycloak.tls.domains[0].main=k8s.local"
-      # - "traefik.http.routers.keycloak.tls.domains[0].sans=*.k8s.local"
+      # - "traefik.http.routers.keycloak.tls.domains[0].main=${DOMAINNAME}"
+      # - "traefik.http.routers.keycloak.tls.domains[0].sans=*.${DOMAINNAME}"
 
     # restart: always
     depends_on:
@@ -159,15 +159,15 @@ services:
       - DEFAULT_PROVIDER=oidc
       - DEFAULT_ACTION=auth
       # This is based on using the selected realm. Create a new client, this will go into your CLIENT_ID, CLIENT_SECRET details.
-      - PROVIDERS_OIDC_ISSUER_URL=https://keycloak.k8s.local/auth/realms/k8slocal
+      - PROVIDERS_OIDC_ISSUER_URL=https://keycloak.${DOMAINNAME}/auth/realms/k8slocal
       - PROVIDERS_OIDC_CLIENT_ID=traefik-forward-auth
       - PROVIDERS_OIDC_CLIENT_SECRET=UGQuyp1KcmJjaajs80fB4eCEZ8n1T5ho
       # - SECRET=THISISASECRET
       - SECRET=SomeRandomSecret
       - INSECURE_COOKIE=false
-      - AUTH_HOST=auth.k8s.local
+      - AUTH_HOST=auth.${DOMAINNAME}
       - URL_PATH=/_oauth
-      - COOKIE_DOMAIN=k8s.local
+      - COOKIE_DOMAIN=${DOMAINNAME}
       - COOKIE_NAME=_forward_auth
       - CSRF_COOKIE_NAME=_forward_auth_csrf
       - LOG_LEVEL=debug
@@ -185,10 +185,10 @@ services:
       - "traefik.docker.network=traefik"
       - "traefik.port=4182"
        # Define the URL to access this app
-      - "traefik.http.routers.traefik-forward-auth.rule=Host(`auth.k8s.local`)"
+      - "traefik.http.routers.traefik-forward-auth.rule=Host(`auth.${DOMAINNAME}`)"
        # Access via HTTPS only
       - "traefik.http.routers.traefik-forward-auth.entrypoints=websecure"
-      - "traefik.frontend.rule=Host:auth.k8s.local"
+      - "traefik.frontend.rule=Host:auth.${DOMAINNAME}"
       # - "traefik.frontend.headers.SSLHost=oauth.${DOMAINNAME}"
       - "traefik.frontend.passHostHeader=true"
       # - "traefik.frontend.headers.SSLForceHost=true"
@@ -232,12 +232,11 @@ services:
   traefik:
     image: traefik:latest
     command:
-      - --entrypoints.web.address=:80
       - --providers.docker=true
       - --api.insecure # Don't do that in production
       - --providers.docker.exposedbydefault=false
       - --providers.file.directory=/config
-      # - --entrypoints.web.address=:80
+      - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       # - --entrypoints.traefik.address=:8080
       - --log.filePath=/logs/traefik.log
@@ -250,7 +249,7 @@ services:
       traefik:
         aliases:
           - traefik
-          - keycloak.k8s.local
+          - keycloak.${DOMAINNAME}
       keycloak:
         aliases:
           - keycloak
@@ -269,6 +268,12 @@ services:
       - traefik.http.routers.redirs.rule=hostregexp(`{host:.+}`)
       - traefik.http.routers.redirs.entrypoints=web
       - traefik.http.routers.redirs.middlewares=redirect-to-https
+      # route to traefik dashboard
+      - traefik.enable=true
+      - traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAINNAME}`)
+      - traefik.http.routers.dashboard.entrypoints=websecure
+      - traefik.http.routers.dashboard.tls=true
+      - traefik.http.services.dashboard.loadbalancer.server.port=8080
 
   ##############################################
   ## Sample WhoAmI service
@@ -283,12 +288,12 @@ services:
       - traefik.enable=true
       # Enabling HTTP
       # - traefik.http.routers.whoami-http.entrypoints=web
-      # - traefik.http.routers.whoami-http.rule=Host(`whoami1.k8s.local`)
+      # - traefik.http.routers.whoami-http.rule=Host(`whoami1.${DOMAINNAME}`)
       # - traefik.http.routers.whoami-http.service=whoami-http
       # - traefik.http.services.whoami-http.loadbalancer.server.port=8082
       # Enabling HTTPS
       - traefik.http.routers.whoami-https.entrypoints=websecure
-      - traefik.http.routers.whoami-https.rule=Host(`whoami1.k8s.local`)
+      - traefik.http.routers.whoami-https.rule=Host(`whoami1.${DOMAINNAME}`)
       - traefik.http.routers.whoami-https.service=whoami-https
       - traefik.http.routers.whoami-https.tls=true
       - traefik.http.services.whoami-https.loadbalancer.server.port=8082
