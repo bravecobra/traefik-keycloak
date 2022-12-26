@@ -279,7 +279,7 @@ services:
   ## Sample WhoAmI service
   ##############################################
   whoami:
-    image: containous/whoami:v1.3.0
+    image: containous/whoami:v1.5.0
     command:
       - --port=8082 # Our service listens on 8082
     networks:
